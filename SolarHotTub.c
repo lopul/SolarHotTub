@@ -2,13 +2,13 @@
 // author: Lorenz Pullwitt
 // copyright 2022
 // license: GPL 2
-// version: 4
+// version: 5
 
+#include <stdio.h>
 #ifdef NO_PICO_DEBUG
 // gcc -Wall -g -O0 -D NO_PICO_DEBUG -fsanitize=address SolarHotTub.c -o solarhottub
 #include <stdint.h>
 #include <stdbool.h>
-#include <stdio.h>
 typedef unsigned int uint;
 static void gpio_put (uint gpio, bool value)
 {
@@ -60,6 +60,64 @@ static uint16_t ch2morse(uint8_t ch)
     return morse;
 }
 
+static int play_symbol(uint8_t ch)
+{
+    int e;
+    uint16_t morse;
+    uint16_t sig;
+    bool symb_active;
+    morse = ch2morse(ch);
+    e = morse == 0;
+    if (e == 0) {
+        symb_active = false;
+        do {
+            if (symb_active) {
+                sleep_ms(333);
+            }
+            sig = morse & 0x3;
+            switch (sig) {
+            case 1:
+                gpio_put(PICO_DEFAULT_LED_PIN, 1);
+                sleep_ms(333);
+                gpio_put(PICO_DEFAULT_LED_PIN, 0);
+                break;
+            case 2:
+                gpio_put(PICO_DEFAULT_LED_PIN, 1);
+                sleep_ms(999);
+                gpio_put(PICO_DEFAULT_LED_PIN, 0);
+                break;
+            default: e = 1;
+            }
+            if (e == 0) {
+                symb_active = true;
+            }
+            morse >>= 2;
+        } while (morse > 0 && e == 0);
+    }
+    return e;
+}
+
+static int play_morse(char *str)
+{
+    int e;
+    int i;
+    uint8_t ch;
+    e = str == NULL;
+    if (e == 0) {
+        i = 0;
+        do {
+            ch = str[i++];
+            if (ch != '\0') {
+                if (ch != ' ')
+                    e = play_symbol(ch);
+                else
+                    sleep_ms(333*7);
+            }
+        } while (ch != '\0' && e == 0);
+    }
+    return e;
+}
+
 int main()
 {
     int e;
@@ -75,9 +133,12 @@ int main()
             do {
                 sig = morse & 0x3;
                 switch (sig) {
-                    case 1: symb = '.'; break;
-                    case 2: symb = '-'; break;
-                    default: e = 1;
+                case 1:
+                    symb = '.'; break;
+                case 2:
+                    symb = '-'; break;
+                default:
+                    e = 1;
                 }
                 if (e == 0)
                     printf("%c", symb);
@@ -88,11 +149,8 @@ int main()
     }
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
-    while (true) {
-        gpio_put(PICO_DEFAULT_LED_PIN, 1);
-        sleep_ms(250);
-        gpio_put(PICO_DEFAULT_LED_PIN, 0);
-        sleep_ms(250);
+    while (e == 0) {
+        e = play_morse("MORSE CODE ");
     }
     return e;
 }

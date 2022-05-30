@@ -2,7 +2,7 @@
 // author: Lorenz Pullwitt
 // copyright 2022
 // license: GPL 2
-// version: 5
+// version: 7
 
 #include <stdio.h>
 #ifdef NO_PICO_DEBUG
@@ -102,16 +102,23 @@ static int play_morse(char *str)
     int e;
     int i;
     uint8_t ch;
+    bool word_active;
     e = str == NULL;
     if (e == 0) {
         i = 0;
         do {
             ch = str[i++];
             if (ch != '\0') {
-                if (ch != ' ')
+                if (ch != ' ') {
+                    if (word_active)
+                        sleep_ms(333*3);
                     e = play_symbol(ch);
-                else
+                    if (e == 0)
+                        word_active = true;
+                } else {
                     sleep_ms(333*7);
+                    word_active = false;
+                }
             }
         } while (ch != '\0' && e == 0);
     }

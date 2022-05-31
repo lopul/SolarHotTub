@@ -2,14 +2,14 @@
 // author: Lorenz Pullwitt
 // copyright 2022
 // license: GPL 2
-// version: 8
+// version: 10
 
 #include <stdio.h>
+#include <stdlib.h>
 #ifdef NO_PICO_DEBUG
 // gcc -Wall -g -O0 -D NO_PICO_DEBUG -fsanitize=address SolarHotTub.c -o solarhottub
 #include <stdint.h>
 #include <stdbool.h>
-#include <stdlib.h>
 
 typedef unsigned int uint;
 static void gpio_put (uint gpio, bool value)
@@ -24,15 +24,29 @@ static void gpio_set_dir (uint gpio, bool out)
 static void sleep_ms (uint32_t ms)
 {
 }
+static void adc_init ()
+{
+}
+static void adc_set_temp_sensor_enabled(bool enable)
+{
+}
+static void adc_select_input (uint input)
+{
+}
+static uint16_t adc_read()
+{
+    return 4095;
+}
 #define PICO_DEFAULT_LED_PIN 25
 #define GPIO_OUT 1
 
 #else
 
 #include "pico/stdlib.h"
+#include "hardware/adc.h"
 
 #ifndef PICO_DEFAULT_LED_PIN
-#warning blink example requires a board with a regular LED
+#warning requires a board with a regular LED
 #endif
 
 #endif
@@ -43,7 +57,7 @@ static uint16_t morse_chart[91] = {
     0, 0, 0, 0, 0, 0, 0, 0, // 16
     0, 0, 0, 0, 0, 0, 0, 0, // 24
     0, 0, 0, 0, 0, 0, 0, 0, // 32
-    0, 0, 0, 0, 0, 0, 0, 0, // 40
+    0, 0, 0, 0, 0, 0, 0x999, 0, // 40 .
     0x2AA, 0x2A9, 0x2A5, 0x295, 0x255, 0x155, 0x156, 0x15A, // 48 (0 - 7)
     0x16A, 0x1AA, 0, 0, 0, 0, 0, 0, // 56 (8 - 9)
     0, 0x9, 0x56, 0x66, 0x16, 0x1, 0x65, 0x1A, // 64 (A - G)
@@ -139,6 +153,11 @@ int main()
     uint16_t morse;
     uint8_t ch;
     uint16_t sig;
+    uint16_t temp_adc_result;
+    uint32_t mvolt;
+    uint32_t digit1;
+    uint32_t digit2;
+    char morse_str[32];
     char symb;
     struct Morse *m;
     size_t size;
@@ -148,8 +167,8 @@ int main()
     if (e == 0) {
         m->dit = 120;
         m->symb_space = 120;
-        m->letter_space = 120 * 3;
-        m->word_space = 120 * 7 * 2;
+        m->letter_space = 120 * 3 * 4;
+        m->word_space = 120 * 7 * 4;
         for (ch = 0; ch <= 90 && e == 0; ch++) {
             morse = ch2morse(ch);
             if (morse > 0) {
@@ -173,12 +192,17 @@ int main()
         }
         gpio_init(PICO_DEFAULT_LED_PIN);
         gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+        adc_init();
+        adc_set_temp_sensor_enabled(true);
+        adc_select_input(4);
         while (e == 0) {
-            e = play_morse("MORSE CODE ", m);
+            temp_adc_result = adc_read();
+            mvolt = temp_adc_result * 3300 / 4095;
+            digit1 = mvolt / 1000;
+            digit2 = mvolt / 100 % 10;
+            snprintf(morse_str, 31, "%c.%c ", '0' + digit1, '0' + digit2);
+            e = play_morse(morse_str, m); // "MORSE CODE "
         }
     }
     return e;
 }
-
-
-

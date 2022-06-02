@@ -12,6 +12,7 @@
 #include <stdbool.h>
 
 typedef unsigned int uint;
+enum gpio_function { GPIO_FUNC_XIP = 0, GPIO_FUNC_SPI = 1, GPIO_FUNC_UART = 2, GPIO_FUNC_I2C = 3, GPIO_FUNC_PWM = 4, GPIO_FUNC_SIO = 5, GPIO_FUNC_PIO0 = 6, GPIO_FUNC_PIO1 = 7, GPIO_FUNC_GPCK = 8, GPIO_FUNC_USB = 9, GPIO_FUNC_NULL = 0x1f };
 static void gpio_put (uint gpio, bool value)
 {
 }
@@ -36,6 +37,10 @@ static void adc_select_input (uint input)
 static uint16_t adc_read()
 {
     return 4095;
+}
+static enum gpio_function gpio_get_function(uint gpio)
+{
+    return GPIO_FUNC_PWM;
 }
 #define PICO_DEFAULT_LED_PIN 25
 #define GPIO_OUT 1
@@ -161,14 +166,16 @@ int main()
     char symb;
     struct Morse *m;
     size_t size;
+    enum gpio_function gpiofn;
+    char *str;
     size = sizeof(struct Morse);
     m = malloc(size);
     e = m == NULL;
     if (e == 0) {
-        m->dit = 120;
-        m->symb_space = 120;
-        m->letter_space = 120 * 3 * 4;
-        m->word_space = 120 * 7 * 4;
+        m->dit = 240;
+        m->symb_space = 240;
+        m->letter_space = 240 * 3 * 4;
+        m->word_space = 240 * 7 * 4;
         for (ch = 0; ch <= 90 && e == 0; ch++) {
             morse = ch2morse(ch);
             if (morse > 0) {
@@ -192,6 +199,7 @@ int main()
         }
         gpio_init(PICO_DEFAULT_LED_PIN);
         gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+        gpiofn = gpio_get_function(PICO_DEFAULT_LED_PIN);
         adc_init();
         adc_set_temp_sensor_enabled(true);
         adc_select_input(4);
@@ -202,6 +210,18 @@ int main()
             digit2 = mvolt / 100 % 10;
             snprintf(morse_str, 31, "%c.%c ", '0' + digit1, '0' + digit2);
             e = play_morse(morse_str, m); // "MORSE CODE "
+            if (e == 0) {
+                switch (gpiofn) {
+                case GPIO_FUNC_PWM:
+                    str = "PWM";
+                    break;
+                default:
+                    str = "UNK";
+                    break;
+                }
+                snprintf(morse_str, 31, "%s ", str);
+                e = play_morse(morse_str, m);
+            }
         }
     }
     return e;

@@ -1,8 +1,8 @@
 // SolarHotTub.c
 // author: Lorenz Pullwitt
 // copyright 2022
-// license: GPL 2
-// version: 10
+// license: Public Domain
+// version: 22
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,22 +16,22 @@ enum gpio_function { GPIO_FUNC_XIP = 0, GPIO_FUNC_SPI = 1, GPIO_FUNC_UART = 2, G
 static void gpio_put (uint gpio, bool value)
 {
 }
-static void gpio_init (uint gpio)
+static void gpio_init(uint gpio)
 {
 }
-static void gpio_set_dir (uint gpio, bool out)
+static void gpio_set_dir(uint gpio, bool out)
 {
 }
-static void sleep_ms (uint32_t ms)
+static void sleep_ms(uint32_t ms)
 {
 }
-static void adc_init ()
+static void adc_init()
 {
 }
 static void adc_set_temp_sensor_enabled(bool enable)
 {
 }
-static void adc_select_input (uint input)
+static void adc_select_input(uint input)
 {
 }
 static uint16_t adc_read()
@@ -42,6 +42,40 @@ static enum gpio_function gpio_get_function(uint gpio)
 {
     return GPIO_FUNC_PWM;
 }
+static void gpio_set_function(uint gpio, enum gpio_function fn)
+{
+}
+static uint pwm_gpio_to_slice_num(uint gpio)
+{
+    return 0;
+}
+static void pwm_set_enabled(uint slice_num, bool enabled)
+{
+}
+static void pwm_set_wrap(uint slice_num, uint16_t wrap)
+{
+}
+static void pwm_set_chan_level(uint slice_num, uint chan, uint16_t level)
+{
+}
+static uint pwm_gpio_to_channel(uint gpio)
+{
+    return 0;
+}
+static void pwm_set_gpio_level(uint gpio, uint16_t level)
+{
+}
+static bool gpio_is_pulled_down(uint gpio)
+{
+    return false;
+}
+static uint16_t pwm_get_counter(uint slice_num)
+{
+    return 0;
+}
+static void adc_gpio_init(uint gpio)
+{
+}
 #define PICO_DEFAULT_LED_PIN 25
 #define GPIO_OUT 1
 
@@ -49,12 +83,16 @@ static enum gpio_function gpio_get_function(uint gpio)
 
 #include "pico/stdlib.h"
 #include "hardware/adc.h"
+#include "hardware/pwm.h"
 
 #ifndef PICO_DEFAULT_LED_PIN
 #warning requires a board with a regular LED
 #endif
 
 #endif
+
+const uint BUZZER_SIO = 17; // 0
+const uint LED_PWM = 0; // 17
 
 static uint16_t morse_chart[91] = {
     0, 0, 0, 0, 0, 0, 0, 0, // 0
@@ -81,10 +119,12 @@ static uint16_t ch2morse(uint8_t ch)
 }
 
 struct Morse {
-    int dit;
+    int dit; // di-dah
     int symb_space;
-    int letter_space;
-    int word_space;
+    int letter_space; // inter-character
+    int word_space; // inter-word
+    uint slice_num;
+    uint channel;
 };
 
 static int play_symbol(uint8_t ch, struct Morse *m)
@@ -104,14 +144,26 @@ static int play_symbol(uint8_t ch, struct Morse *m)
             sig = morse & 0x3;
             switch (sig) {
             case 1:
-                gpio_put(PICO_DEFAULT_LED_PIN, 1);
+                pwm_set_gpio_level(LED_PWM, 32767);
+//                pwm_set_enabled(m->slice_num, true);
+//                pwm_set_chan_level(m->slice_num, m->channel, 32767); // 17857
+                gpio_put(BUZZER_SIO, 1);
                 sleep_ms(m->dit);
-                gpio_put(PICO_DEFAULT_LED_PIN, 0);
+                pwm_set_gpio_level(LED_PWM, 0); // 65535
+//                pwm_set_chan_level(m->slice_num, m->channel, 0); // 65535
+//                pwm_set_enabled(m->slice_num, false);
+                gpio_put(BUZZER_SIO, 0);
                 break;
             case 2:
-                gpio_put(PICO_DEFAULT_LED_PIN, 1);
+                pwm_set_gpio_level(LED_PWM, 32767);
+//                pwm_set_enabled(m->slice_num, true);
+//                pwm_set_chan_level(m->slice_num, m->channel, 32767); // 17857
+                gpio_put(BUZZER_SIO, 1);
                 sleep_ms(m->dit * 3);
-                gpio_put(PICO_DEFAULT_LED_PIN, 0);
+                pwm_set_gpio_level(LED_PWM, 0); // 65535
+//                pwm_set_chan_level(m->slice_num, m->channel, 0); // 65535
+//                pwm_set_enabled(m->slice_num, false);
+                gpio_put(BUZZER_SIO, 0);
                 break;
             default: e = 1;
             }
@@ -158,16 +210,24 @@ int main()
     uint16_t morse;
     uint8_t ch;
     uint16_t sig;
-    uint16_t temp_adc_result;
+    uint16_t adc_res;
     uint32_t mvolt;
     uint32_t digit1;
     uint32_t digit2;
+    uint32_t digit3;
+    uint32_t digit4;
     char morse_str[32];
     char symb;
     struct Morse *m;
     size_t size;
-    enum gpio_function gpiofn;
-    char *str;
+    enum gpio_function gpio_fn;
+    char *str_fn;
+    uint16_t count;
+    bool is_pulled_down;
+    bool do_waiting;
+    bool give_report;
+    int32_t report_cnt;
+    uint32_t vs; // cV * s (centi volt seconds)
     size = sizeof(struct Morse);
     m = malloc(size);
     e = m == NULL;
@@ -197,30 +257,85 @@ int main()
                 printf("\n");
             }
         }
-        gpio_init(PICO_DEFAULT_LED_PIN);
-        gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
-        gpiofn = gpio_get_function(PICO_DEFAULT_LED_PIN);
+        gpio_init(BUZZER_SIO);
+        gpio_set_dir(BUZZER_SIO, GPIO_OUT);
+        gpio_set_function(LED_PWM, GPIO_FUNC_PWM);
+        gpio_fn = gpio_get_function(LED_PWM);
+        m->slice_num = pwm_gpio_to_slice_num(LED_PWM);
+        pwm_set_enabled(m->slice_num, true);
+        pwm_set_wrap(m->slice_num, 65535); // 35714 3500Hz ?
+        m->channel = pwm_gpio_to_channel(LED_PWM);
+        pwm_set_chan_level(m->slice_num, m->channel, 0);
+        is_pulled_down = gpio_is_pulled_down(LED_PWM);
         adc_init();
-        adc_set_temp_sensor_enabled(true);
-        adc_select_input(4);
+        adc_gpio_init(28);
+//        adc_set_temp_sensor_enabled(true);
+        adc_select_input(2);
+        report_cnt = 0; // -1
+        vs = 0;
         while (e == 0) {
-            temp_adc_result = adc_read();
-            mvolt = temp_adc_result * 3300 / 4095;
-            digit1 = mvolt / 1000;
-            digit2 = mvolt / 100 % 10;
-            snprintf(morse_str, 31, "%c.%c ", '0' + digit1, '0' + digit2);
-            e = play_morse(morse_str, m); // "MORSE CODE "
+            adc_res = adc_read();
+            mvolt = adc_res * 3540 / 4095;
+            give_report = false;
+            if (report_cnt <= 0) {
+                give_report = true;
+            }
+            if (mvolt > 2700 || mvolt < 1335) {
+                do_waiting = false;
+                give_report = true;
+            } else {
+                do_waiting = true;
+            }
+            if (give_report) {
+                digit1 = mvolt / 1000;
+                digit2 = mvolt / 100 % 10;
+                digit3 = mvolt / 10 % 10;
+                digit4 = mvolt / 1 % 10;
+                snprintf(morse_str, 31, "%c%c%c%c ", '0' + digit1, '0' + digit2, '0' + digit3, '0' + digit4);
+                e = play_morse(morse_str, m); // "MORSE CODE "
+                report_cnt = 300000;
+            }
             if (e == 0) {
-                switch (gpiofn) {
+                switch (gpio_fn) {
                 case GPIO_FUNC_PWM:
-                    str = "PWM";
+                    str_fn = "PWM";
+                    break;
+                case GPIO_FUNC_SIO:
+                    str_fn = "SIO";
+                    break;
+                case GPIO_FUNC_PIO0:
+                    str_fn = "PIO0";
+                    break;
+                case GPIO_FUNC_PIO1:
+                    str_fn = "PIO1";
                     break;
                 default:
-                    str = "UNK";
+                    str_fn = "UNK";
                     break;
                 }
-                snprintf(morse_str, 31, "%s ", str);
-                e = play_morse(morse_str, m);
+                snprintf(morse_str, 31, "%s ", str_fn);
+//                e = play_morse(morse_str, m);
+            }
+            if (e == 0) {
+                snprintf(morse_str, 31, "%d ", m->slice_num);
+//                e = play_morse(morse_str, m);
+            }
+            if (e == 0) {
+                count = pwm_get_counter(m->slice_num);
+                snprintf(morse_str, 31, "%d ", count);
+//                e = play_morse(morse_str, m);
+            }
+            if (e == 0) {
+                snprintf(morse_str, 31, "%d ", m->channel);
+//                e = play_morse(morse_str, m);
+            }
+            if (e == 0) {
+                snprintf(morse_str, 31, "%d ", is_pulled_down);
+//                e = play_morse(morse_str, m);
+            }
+            if (e == 0 && do_waiting) {
+                sleep_ms(5000); // 1000
+                report_cnt -= 5000;
             }
         }
     }

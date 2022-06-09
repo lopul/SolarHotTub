@@ -132,44 +132,35 @@ static int play_symbol(uint8_t ch, struct Morse *m)
     int e;
     uint16_t morse;
     uint16_t sig;
-    bool symb_active;
+    bool is_symb_active;
     morse = ch2morse(ch);
     e = morse == 0;
     if (e == 0) {
-        symb_active = false;
+        is_symb_active = false;
         do {
-            if (symb_active) {
+            if (is_symb_active) {
                 sleep_ms(m->symb_space);
             }
             sig = morse & 0x3;
             switch (sig) {
             case 1:
                 pwm_set_gpio_level(LED_PWM, 32767);
-//                pwm_set_enabled(m->slice_num, true);
-//                pwm_set_chan_level(m->slice_num, m->channel, 32767); // 17857
                 gpio_put(BUZZER_SIO, 1);
                 sleep_ms(m->dit);
-                pwm_set_gpio_level(LED_PWM, 0); // 65535
-//                pwm_set_chan_level(m->slice_num, m->channel, 0); // 65535
-//                pwm_set_enabled(m->slice_num, false);
+                pwm_set_gpio_level(LED_PWM, 0);
                 gpio_put(BUZZER_SIO, 0);
                 break;
             case 2:
                 pwm_set_gpio_level(LED_PWM, 32767);
-//                pwm_set_enabled(m->slice_num, true);
-//                pwm_set_chan_level(m->slice_num, m->channel, 32767); // 17857
                 gpio_put(BUZZER_SIO, 1);
                 sleep_ms(m->dit * 3);
-                pwm_set_gpio_level(LED_PWM, 0); // 65535
-//                pwm_set_chan_level(m->slice_num, m->channel, 0); // 65535
-//                pwm_set_enabled(m->slice_num, false);
+                pwm_set_gpio_level(LED_PWM, 0);
                 gpio_put(BUZZER_SIO, 0);
                 break;
-            default: e = 1;
+            default:
+                e = 1;
             }
-            if (e == 0) {
-                symb_active = true;
-            }
+            is_symb_active = true;
             morse >>= 2;
         } while (morse > 0 && e == 0);
     }
@@ -181,22 +172,22 @@ static int play_morse(char *str, struct Morse *m)
     int e;
     int i;
     uint8_t ch;
-    bool word_active;
+    bool is_word_active;
     e = str == NULL;
     if (e == 0) {
         i = 0;
+        is_word_active = false;
         do {
             ch = str[i++];
             if (ch != '\0') {
                 if (ch != ' ') {
-                    if (word_active)
+                    if (is_word_active)
                         sleep_ms(m->letter_space);
                     e = play_symbol(ch, m);
-                    if (e == 0)
-                        word_active = true;
+                    is_word_active = true;
                 } else {
                     sleep_ms(m->word_space);
-                    word_active = false;
+                    is_word_active = false;
                 }
             }
         } while (ch != '\0' && e == 0);
@@ -234,8 +225,8 @@ int main()
     if (e == 0) {
         m->dit = 240;
         m->symb_space = 240;
-        m->letter_space = 240 * 3 * 4;
-        m->word_space = 240 * 7 * 4;
+        m->letter_space = 240 * 3 * 2;
+        m->word_space = 240 * 7 * 2;
         for (ch = 0; ch <= 90 && e == 0; ch++) {
             morse = ch2morse(ch);
             if (morse > 0) {
@@ -275,7 +266,7 @@ int main()
         vs = 0;
         while (e == 0) {
             adc_res = adc_read();
-            mvolt = adc_res * 3540 / 4095;
+            mvolt = adc_res * 3544 / 4095; // last: 3540
             give_report = false;
             if (report_cnt <= 0) {
                 give_report = true;
@@ -293,7 +284,7 @@ int main()
                 digit4 = mvolt / 1 % 10;
                 snprintf(morse_str, 31, "%c%c%c%c ", '0' + digit1, '0' + digit2, '0' + digit3, '0' + digit4);
                 e = play_morse(morse_str, m); // "MORSE CODE "
-                report_cnt = 300000;
+                report_cnt = 24*60*60*1000; // 300000
             }
             if (e == 0) {
                 switch (gpio_fn) {
